@@ -11,6 +11,8 @@ Launch a robot from a balloon
 *Add Model Image*
 ## Parts Links 
 * [Rocket Body Shop](https://www.apogeerockets.com/Building_Supplies/Body_Tubes)
+## Is this even legal?
+* Do I even care? Yes I do ... alot.
 ## Research Links 
 * https://www.youtube.com/watch?v=ZUgAvma_vBc
 * [Example Auto Stabilizing Rocket](https://workshopscience.com/arduino-rocket-stabilization/)

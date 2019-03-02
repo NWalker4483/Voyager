@@ -5,8 +5,10 @@
 #include <Adafruit_Sensor.h>  // not used in this code but required!
 
 /////////////////////////
-#define X_ServoPin      9
-#define Y_ServoPin      8
+#define XA_ServoPin      9
+#define XB_ServoPin      9
+#define YA_ServoPin      8
+#define YB_ServoPin      8
 ////////////////////////
 float P_GAIN =           0.002;
 float I_GAIN =           0.0;
@@ -21,15 +23,11 @@ int   UPDATE_FREQUENCY = 300; //Hz
 #define Y_MIN_SPEED       85 // %
 #define Y_MAX_SPEED       95 // %
 
-
-#define LoopTime        100   // PID loop time(ms)
 //Globals
 unsigned long lastMilli = 0; // time at the end of the last loop
 
 int current_x_speed_setting = 0;
 int current_y_speed_setting = 0;
-int actual_x_angle = 0;
-int actual_y_angle = 0;
 
 float goal_x_angle = 90;
 float goal_y_angle = 90;
@@ -46,12 +44,16 @@ struct config {
 
 struct config x_config;
 struct config y_config;
-Servo X_Servo;
-Servo Y_Servo;
+
+Servo XA_Servo;
+Servo XB_Servo;
+Servo YA_Servo;
+Servo YB_Servo;
 // Initialize the IMU Sensor
 Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1();
 
 float RwEst[3];     //Rw estimated from combining RwAcc and RwGyro
+float AngleEstimates[3]; //
 unsigned long lastMicros;
 
 //Variables below don't need to be global but we expose them for debug purposes
@@ -73,12 +75,11 @@ void ApplyKalmanFiltering() {
   static float tmpf, tmpf2;
   static unsigned long newMicros; //new timestamp
   static char signRzGyro;
-  float wGyro = 20;
+  float wGyro = 10;
   ////BELOW is likely removable
   //compute interval since last sampling time
   interval = newMicros - lastMicros;    //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
   lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
-
 
   //normalize vector (convert to a vector with same direction and with length 1)
   normalize3DVector(RwAcc);
@@ -115,16 +116,17 @@ void ApplyKalmanFiltering() {
   for (w = 0; w <= 2; w++) RwEst[w] = (RwAcc[w] + wGyro * RwGyro[w]) / (1 + wGyro);
 
   normalize3DVector(RwEst);
-  actual_x_angle = g2degree(RwEst[0]);
-  actual_y_angle = g2degree(RwEst[1]);
-}
+  
+  // Store g estimates into angle estimates 
+  for (w = 0; w <= 2; w++) AngleEstimates[w] = g2degree(RwEst[w]);
+  }
 
 void UpdatePIDController_X() {
   // compute the error between the measurement and the desired value
-  x_config.AngleError = -ShortestAngularPath(actual_x_angle, goal_x_angle);
+  x_config.AngleError = -ShortestAngularPath(AngleEstimates[0], goal_x_angle);
   if (abs(x_config.AngleError) <= DEADZONE) { // Deadzone // Stop if close enough to prevent oscillations
     current_x_speed_setting = 90;
-    set_X_Speed(current_x_speed_setting);
+    set_X_Angle(current_x_speed_setting);
   } else {
     x_config.DerivativeTerm = x_config.AngleError - x_config.lastAngleError;
     // If the actuator is saturating ignore the integral term
@@ -140,16 +142,16 @@ void UpdatePIDController_X() {
 
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
     current_x_speed_setting = CheckClamp(current_x_speed_setting,x_config);
-    set_X_Speed(current_x_speed_setting); // then write it to the LED pin to change control voltage to LED
+    set_X_Angle(current_x_speed_setting); // then write it to the LED pin to change control voltage to LED
   }
 }
 
 void UpdatePIDController_Y() {
   // compute the error between the measurement and the desired value
-  y_config.AngleError = ShortestAngularPath(actual_y_angle, goal_y_angle); // Minimum degree shifts in order to reach goal
+  y_config.AngleError = ShortestAngularPath(AngleEstimates[1], goal_y_angle); // Minimum degree shifts in order to reach goal
   if (abs(y_config.AngleError) <= DEADZONE) { // Deadzone
     current_y_speed_setting = 90;
-    set_Y_Speed(current_y_speed_setting);
+    set_Y_Angle(current_y_speed_setting);
   } else {
     y_config.DerivativeTerm = y_config.AngleError - y_config.lastAngleError;
     // If the actuator is saturating ignore the integral term
@@ -165,7 +167,7 @@ void UpdatePIDController_Y() {
 
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
     current_y_speed_setting = CheckClamp(current_y_speed_setting,y_config);
-    set_Y_Speed(current_y_speed_setting); // then write it to the LED pin to change control voltage to LED
+    set_Y_Angle(current_y_speed_setting); // then write it to the LED pin to change control voltage to LED
   }
 }
 
@@ -173,7 +175,6 @@ void getMachineState() {
   // Convert DOF data to angles
   lsm.read();
   sensors_event_t a, m, g, temp;
-  bool isUpsideDown;
   lsm.getEvent(&a, &m, &g, &temp);
 
   RwAcc[0] = a.acceleration.x / 9.80665; // m/s^2 in g
@@ -186,10 +187,12 @@ void getMachineState() {
 }
 
 void setup() {
-  X_Servo.attach(X_ServoPin);
-  Y_Servo.attach(Y_ServoPin);
-  set_X_Speed(90);
-  set_Y_Speed(90);
+  XA_Servo.attach(XA_ServoPin);
+  XB_Servo.attach(XB_ServoPin);
+  YA_Servo.attach(YA_ServoPin);
+  YB_Servo.attach(YB_ServoPin);
+  set_X_Angle(90);
+  set_Y_Angle(90);
   Serial.begin(115200);
   while (!Serial) {
     delay(1); // will pause Zero, Leonardo, etc until serial console opens
@@ -235,14 +238,28 @@ float ShortestAngularPath(int angle, int goal) {
   return dist;
 }
 
-void set_X_Speed(int angle) {
+void set_X_Angle(int angle) {
+  int inv_angle;
   angle = constrain(angle, MIN_SPEED, MAX_SPEED);
-  X_Servo.write(angle);
+  if (angle > goal_x_angle) {
+      inv_angle = angle - (2*abs(angle - goal_x_angle));
+  } else {
+      inv_angle = angle + (2*abs(angle - goal_x_angle));
+  }
+  XA_Servo.write(angle);
+  XB_Servo.write(inv_angle);
 }
 
-void set_Y_Speed(int angle) {
+void set_Y_Angle(int angle) {
+  int inv_angle;
   angle = constrain(angle, Y_MIN_SPEED, Y_MAX_SPEED);
-  Y_Servo.write(angle);
+  if (angle > goal_y_angle) {
+      inv_angle = angle - (2*abs(angle - goal_y_angle));
+  } else {
+      inv_angle = angle + (2*abs(angle - goal_y_angle));
+  }
+  YA_Servo.write(angle);
+  YB_Servo.write(inv_angle);
 }
 
 void set_X_Goal(int angle) { // -180 :-: 180
