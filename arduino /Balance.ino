@@ -1,27 +1,23 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_LSM9DS1.h>
 #include <Adafruit_Sensor.h>  // not used in this code but required!
-
+#include <Adafruit_LSM9DS1.h>
 /////////////////////////
 #define XA_ServoPin      9
-#define XB_ServoPin      9
+#define XB_ServoPin      11
 #define YA_ServoPin      8
-#define YB_ServoPin      8
+#define YB_ServoPin      10
 ////////////////////////
-float P_GAIN =           0.002;
-float I_GAIN =           0.0;
-float D_GAIN =           100.5;
-int   UPDATE_FREQUENCY = 300; //Hz
-#define DEADZONE 15 // Degrees
+float P_GAIN =           0.3;
+float I_GAIN =           0.01;
+float D_GAIN =           0.25;
+int   UPDATE_FREQUENCY = 500; //Hz
+#define DEADZONE         0 // Degrees
 /////////////////////////
 #define MAX_ANGLE       180 // %
-#define MIN_SPEED       85 // %
-#define MAX_SPEED       105 // %
-
-#define Y_MIN_SPEED       85 // %
-#define Y_MAX_SPEED       95 // %
+#define MIN_SPEED       0 // %
+#define MAX_SPEED       180 // %
 
 //Globals
 unsigned long lastMilli = 0; // time at the end of the last loop
@@ -138,7 +134,7 @@ void UpdatePIDController_X() {
     }
     // compute the control effort by multiplying the error by Kp
     x_config.PID_Output = (x_config.AngleError * P_GAIN) + (x_config.IntegralTerm * I_GAIN) + (x_config.DerivativeTerm * D_GAIN);
-    current_x_speed_setting += x_config.PID_Output;
+    x_config.lastAngleError = x_config.AngleError;
 
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
     current_x_speed_setting = CheckClamp(current_x_speed_setting,x_config);
@@ -163,10 +159,9 @@ void UpdatePIDController_Y() {
     }
     // compute the control effort by multiplying the error by Kp
     y_config.PID_Output = (y_config.AngleError * P_GAIN) + (y_config.IntegralTerm * I_GAIN) + (y_config.DerivativeTerm * D_GAIN);
-    current_y_speed_setting += y_config.PID_Output;
-
+    y_config.lastAngleError = y_config.AngleError;
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
-    current_y_speed_setting = CheckClamp(current_y_speed_setting,y_config);
+    current_y_speed_setting = CheckClamp(y_config.PID_Output,y_config);
     set_Y_Angle(current_y_speed_setting); // then write it to the LED pin to change control voltage to LED
   }
 }
@@ -220,6 +215,13 @@ void loop() {
   ApplyKalmanFiltering();
   UpdatePIDController_X();
   UpdatePIDController_Y();
+  Serial.print(y_config.IntegralTerm);
+  Serial.print(" ");
+  Serial.print(y_config.DerivativeTerm);
+  Serial.print(" ");
+  Serial.print(y_config.PID_Output);
+  Serial.print(" ");
+  Serial.println(y_config.AngleError);
   delay(1000 / UPDATE_FREQUENCY); 
 }
 
@@ -252,7 +254,7 @@ void set_X_Angle(int angle) {
 
 void set_Y_Angle(int angle) {
   int inv_angle;
-  angle = constrain(angle, Y_MIN_SPEED, Y_MAX_SPEED);
+  angle = constrain(angle, MIN_SPEED,  MAX_SPEED);
   if (angle > goal_y_angle) {
       inv_angle = angle - (2*abs(angle - goal_y_angle));
   } else {
