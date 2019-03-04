@@ -9,16 +9,15 @@
 #define YA_ServoPin      8
 #define YB_ServoPin      10
 ////////////////////////
-float P_GAIN =           0.3;
-float I_GAIN =           0.01;
-float D_GAIN =           0.25;
+float P_GAIN =           0.09;
+float I_GAIN =           0.05;
+float D_GAIN =           0.75;
 int   UPDATE_FREQUENCY = 500; //Hz
-#define DEADZONE         0 // Degrees
+#define DEADZONE         15 // Degrees
 /////////////////////////
-#define MAX_ANGLE       180 // %
-#define MIN_SPEED       0 // %
-#define MAX_SPEED       180 // %
-
+#define MAX_OFFSET      45
+int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
+int MIN_ANGLE =         90 - MAX_OFFSET; // degrees
 //Globals
 unsigned long lastMilli = 0; // time at the end of the last loop
 
@@ -60,9 +59,13 @@ float GyroTemp[3];
 float Awz[2];           //angles between projection of R on XZ/YZ plane and Z axis (deg)
 
 // Bound the input value between x_min and x_max. Also works in anti-windup
-int CheckClamp(int x, struct config beta) {
-  int angle = constrain(x, MIN_SPEED, MAX_SPEED); // Angle Limit
-  beta.Clamped = not (angle == x);
+int CheckClamp(int a, char axis) {
+  int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
+  if (axis == 'x') {
+      x_config.Clamped = not (angle == a);
+  } else if (axis == 'y') {
+      y_config.Clamped = not (angle == a);
+  }
   return angle;
 }
 
@@ -133,11 +136,11 @@ void UpdatePIDController_X() {
       x_config.IntegralTerm += x_config.AngleError;
     }
     // compute the control effort by multiplying the error by Kp
-    x_config.PID_Output = (x_config.AngleError * P_GAIN) + (x_config.IntegralTerm * I_GAIN) + (x_config.DerivativeTerm * D_GAIN);
+    x_config.PID_Output = 90 + (x_config.AngleError * P_GAIN) + (x_config.IntegralTerm * I_GAIN) + (x_config.DerivativeTerm * D_GAIN);
     x_config.lastAngleError = x_config.AngleError;
 
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
-    current_x_speed_setting = CheckClamp(current_x_speed_setting,x_config);
+    current_x_speed_setting = CheckClamp(current_x_speed_setting,'x');
     set_X_Angle(current_x_speed_setting); // then write it to the LED pin to change control voltage to LED
   }
 }
@@ -158,10 +161,10 @@ void UpdatePIDController_Y() {
       y_config.IntegralTerm += y_config.AngleError;
     }
     // compute the control effort by multiplying the error by Kp
-    y_config.PID_Output = (y_config.AngleError * P_GAIN) + (y_config.IntegralTerm * I_GAIN) + (y_config.DerivativeTerm * D_GAIN);
+    y_config.PID_Output = 90 + (y_config.AngleError * P_GAIN) + (y_config.IntegralTerm * I_GAIN) + (y_config.DerivativeTerm * D_GAIN);
     y_config.lastAngleError = y_config.AngleError;
     // make sure the output value is bounded to 0 to 100 using the bound function defined below
-    current_y_speed_setting = CheckClamp(y_config.PID_Output,y_config);
+    current_y_speed_setting = CheckClamp(y_config.PID_Output,'y');
     set_Y_Angle(current_y_speed_setting); // then write it to the LED pin to change control voltage to LED
   }
 }
@@ -196,13 +199,11 @@ void setup() {
   Serial.println("LSM9DS1 Stabilized Stick Demo");
 
   // Try to initialise and warn if we couldn't detect the chip
-  if (!lsm.begin())
-  {
+  if (!lsm.begin()) {
     Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
     while (1);
   }
   Serial.println("Found LSM9DS1 9DOF");
-
   // helper to just set the default scaling we want, see above!
   setupSensor();
   // Add Comment
@@ -215,13 +216,15 @@ void loop() {
   ApplyKalmanFiltering();
   UpdatePIDController_X();
   UpdatePIDController_Y();
+  /*
+  Serial.print(y_config.AngleError);
+  Serial.print(" ");
   Serial.print(y_config.IntegralTerm);
   Serial.print(" ");
   Serial.print(y_config.DerivativeTerm);
   Serial.print(" ");
-  Serial.print(y_config.PID_Output);
-  Serial.print(" ");
-  Serial.println(y_config.AngleError);
+  Serial.println(y_config.PID_Output);
+  */
   delay(1000 / UPDATE_FREQUENCY); 
 }
 
@@ -242,7 +245,7 @@ float ShortestAngularPath(int angle, int goal) {
 
 void set_X_Angle(int angle) {
   int inv_angle;
-  angle = constrain(angle, MIN_SPEED, MAX_SPEED);
+  angle = constrain(angle, MIN_ANGLE, MAX_ANGLE);
   if (angle > goal_x_angle) {
       inv_angle = angle - (2*abs(angle - goal_x_angle));
   } else {
@@ -254,7 +257,7 @@ void set_X_Angle(int angle) {
 
 void set_Y_Angle(int angle) {
   int inv_angle;
-  angle = constrain(angle, MIN_SPEED,  MAX_SPEED);
+  angle = constrain(angle, MIN_ANGLE,  MAX_ANGLE);
   if (angle > goal_y_angle) {
       inv_angle = angle - (2*abs(angle - goal_y_angle));
   } else {
@@ -293,4 +296,4 @@ void setupSensor() {
 
 float squared(float x) {return x * x;}
 
-int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);}
+int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
