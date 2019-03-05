@@ -169,6 +169,20 @@ void UpdatePIDController_Y() {
   }
 }
 
+void UpdateLinearController_X() {
+  // compute the error between the measurement and the desired value
+    x_config.AngleError = -ShortestAngularPath(AngleEstimates[0], goal_x_angle);
+    current_x_speed_setting = x_config.AngleError + AngleEstimates[0];
+    set_X_Angle(current_x_speed_setting); // then write it to the LED pin to change control voltage to LED
+}
+
+void UpdateLinearController_Y() {
+  // compute the error between the measurement and the desired value
+    y_config.AngleError = -ShortestAngularPath(AngleEstimates[1], goal_y_angle);
+    current_y_speed_setting = y_config.AngleError + AngleEstimates[1];
+    set_Y_Angle(current_y_speed_setting); // then write it to the LED pin to change control voltage to LED
+}
+
 void getMachineState() {
   // Convert DOF data to angles
   lsm.read();
@@ -214,9 +228,11 @@ void setup() {
 void loop() {
   getMachineState();
   ApplyKalmanFiltering();
+  UpdateLinearController_X();
+  UpdateLinearController_Y();
+  /*
   UpdatePIDController_X();
   UpdatePIDController_Y();
-  /*
   Serial.print(y_config.AngleError);
   Serial.print(" ");
   Serial.print(y_config.IntegralTerm);
