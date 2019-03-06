@@ -71,7 +71,7 @@ int CheckClamp(int a, char axis) {
 
 void ApplyKalmanFiltering() {
   static int w;
-  static float tmpf, tmpf2;
+  static float rad;
   static unsigned long newMicros; //new timestamp
   static char signRzGyro;
   float wGyro = 10;
@@ -85,23 +85,23 @@ void ApplyKalmanFiltering() {
 
   //evaluate RwGyro vector
   if (abs(RwEst[2]) < 0.1) {
-    //Rz is too small and because it is used as reference for computing Axz, Ayz it's error fluctuations will amplify leading to bad results
+    //Thetaz is too small and because it is used as reference for computing Axz, Ayz it's error fluctuations will amplify leading to bad results
     //in this case skip the gyro data and just use previous estimate
     for (w = 0; w <= 2; w++) RwGyro[w] = RwEst[w];
   } else {
     //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
     for (w = 0; w <= 1; w++) {
-      tmpf = GyroTemp[w];                             //get current gyro rate in deg/ms
-      tmpf *= interval / 1000.0f;                     //get angle change in deg
-      Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  //get angle and convert to degrees
-      Awz[w] += tmpf;                                 //get updated angle according to gyro movement
+      rad = GyroTemp[w];                             // get current gyro rate in deg/ms
+      rad *= interval / 1000.0f;                     // get angle change in deg
+      Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
+      Awz[w] += rad;                                 // get updated angle according to gyro movement
     }
 
-    //estimate sign of RzGyro by looking in what qudrant the angle Axz is,
-    //RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
-    signRzGyro = (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
+    // estimate sign of RzGyro by looking in what qudrant the angle Axz is,
+    // RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
+    signRzGyro = GyroTemp][2]/abs(GyroTemp[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
 
-    //reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
+    // reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
     for (w = 0; w <= 1; w++) {
       RwGyro[0] = sin(Awz[0] * PI / 180);
       RwGyro[0] /= sqrt( 1 + squared(cos(Awz[0] * PI / 180)) * squared(tan(Awz[1] * PI / 180)) );
@@ -111,7 +111,7 @@ void ApplyKalmanFiltering() {
     RwGyro[2] = signRzGyro * sqrt(1 - squared(RwGyro[0]) - squared(RwGyro[1]));
   }
 
-  //combine Accelerometer and gyro readings
+  // Combine Accelerometer and gyro readings
   for (w = 0; w <= 2; w++) RwEst[w] = (RwAcc[w] + wGyro * RwGyro[w]) / (1 + wGyro);
 
   normalize3DVector(RwEst);
@@ -130,7 +130,7 @@ void UpdatePIDController_X() {
     x_config.DerivativeTerm = x_config.AngleError - x_config.lastAngleError;
     // If the actuator is saturating ignore the integral term
     // if the system is clamped and the sign of the integrator term and the sign of the PID output are the same
-    if (x_config.Clamped and ((x_config.PID_Output / abs(x_config.PID_Output)) == (x_config.IntegralTerm / abs(x_config.IntegralTerm)))) {
+    if (x_config.Clamped and sameSign(x_config.PID_Output, x_config.IntegralTerm) {
       x_config.IntegralTerm += 0;
     } else {
       x_config.IntegralTerm += x_config.AngleError;
@@ -155,7 +155,7 @@ void UpdatePIDController_Y() {
     y_config.DerivativeTerm = y_config.AngleError - y_config.lastAngleError;
     // If the actuator is saturating ignore the integral term
     // if the system is clamped and the sign of the integrator term and the sign of the PID output are the same
-    if (y_config.Clamped and ((y_config.PID_Output / abs(y_config.PID_Output)) == (y_config.IntegralTerm / abs(y_config.IntegralTerm)))) {
+    if (y_config.Clamped and sameSign(y_config.PID_Output,y_config.IntegralTerm)) {
       y_config.IntegralTerm += 0; 
     } else {
       y_config.IntegralTerm += y_config.AngleError;
@@ -210,7 +210,7 @@ void setup() {
     delay(1); // will pause Zero, Leonardo, etc until serial console opens
   }
 
-  Serial.println("LSM9DS1 Stabilized Stick Demo");
+  Serial.println("LSM9DS1 Stabilized Rocket Demo");
 
   // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin()) {
@@ -230,7 +230,7 @@ void loop() {
   ApplyKalmanFiltering();
   UpdateLinearController_X();
   UpdateLinearController_Y();
-  /*
+  /* 
   UpdatePIDController_X();
   UpdatePIDController_Y();
   Serial.print(y_config.AngleError);
@@ -313,3 +313,5 @@ void setupSensor() {
 float squared(float x) {return x * x;}
 
 int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
+
+bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b)) }

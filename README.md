@@ -22,3 +22,4 @@ Launch a robot from a balloon
 * [Rocket Stability Intro](https://www.youtube.com/watch?v=qCzF9OfYahc)
 * [Model Rocket Stability (Rocket Swing Test) Tutorial](https://www.youtube.com/watch?v=3S7_fg6ZCF4)
 * [General Design Tips](https://www.apogeerockets.com/Technical_Publication_16)
+* [Basic Altitude Calculations](http://www.rocketmime.com/rockets/rckt_eqn.html)
