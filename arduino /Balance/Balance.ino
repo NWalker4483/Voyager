@@ -105,7 +105,7 @@ void ApplyKalmanFiltering() {
 
   //compute interval since last sampling time
   static unsigned long newMicros = micros();
-  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
+  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //in seconds //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
   K_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
 
   //normalize vector (convert to a vector with same direction and with length 1)
@@ -119,8 +119,8 @@ void ApplyKalmanFiltering() {
   } else {
     //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
     for (w = 0; w <= 1; w++) {
-      rad = GyroTemp[w];                             // get current gyro rate in deg/ms
-      rad *= delta_time / 1000.0f;    //interval == delta_time //in seconds                 // get angle change in deg
+      rad = GyroTemp[w];           // get current gyro rate in deg/ms
+      rad *= delta_time;           // get angle change in deg
       Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
       Awz[w] += rad;                                 // get updated angle according to gyro movement
     }
@@ -265,13 +265,14 @@ void loop() {
   ApplyComplementaryFiltering();
   UpdateLinearController_X();
   UpdateLinearController_Y();
-   Serial.print(0);
+  //UpdatePIDController_X();
+  //UpdatePIDController_Y();
+  Serial.print(0);
   Serial.print(" ");
   Serial.print(180);
   Serial.print(" ");
   Serial.println(AngleEstimates[0]);
-  //UpdatePIDController_X();
-  //UpdatePIDController_Y();
+
   /*Serial.print(y_config.AngleError);
   Serial.print(" ");
   Serial.print(y_config.IntegralTerm);
