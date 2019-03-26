@@ -14,6 +14,9 @@ float I_GAIN =           0.0;
 float D_GAIN =           1.5;
 int   UPDATE_FREQUENCY = 500; //Hz
 #define DEADZONE         15 // Degrees
+
+#define ACCELEROMETER_SENSITIVITY 8192.0
+#define GYROSCOPE_SENSITIVITY 65.536    
 /////////////////////////
 #define MAX_OFFSET      90
 int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
@@ -68,9 +71,6 @@ int CheckClamp(int a, char axis) {
   }
   return angle;
 }
-
-#define ACCELEROMETER_SENSITIVITY 8192.0
-#define GYROSCOPE_SENSITIVITY 65.536    
  
 void ApplyComplementaryFiltering() {
     float pitchAcc, rollAcc;               
@@ -80,8 +80,8 @@ void ApplyComplementaryFiltering() {
     C_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
 
     // Integrate the gyroscope data -> int(angularSpeed) = angle
-    AngleEstimates[1] += ((float)GyroTemp[0] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the X-axis
-    AngleEstimates[0] -= ((float)GyroTemp[1] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the Y-axis
+    AngleEstimates[0] += ((float)GyroTemp[0] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the X-axis
+    AngleEstimates[1] -= ((float)GyroTemp[1] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the Y-axis
 
     // Compensate for drift with accelerometer data if !bullshit
     // Sensitivity = -2 to 2 G at 16Bit -> 2G = 32768 && 0.5G = 8192
@@ -90,10 +90,10 @@ void ApplyComplementaryFiltering() {
     { 
     // Turning around the X axis results in a vector on the Y-axis
         pitchAcc = atan2f((float)RwAcc[1], (float)RwAcc[2]) * 180 / PI;
-        AngleEstimates[1] = AngleEstimates[1] * 0.98 + pitchAcc * 0.02;
+        AngleEstimates[0] = AngleEstimates[0] * 0.98 + pitchAcc * 0.02;
     // Turning around the Y axis results in a vector on the X-axis
         rollAcc = atan2f((float)RwAcc[0], (float)RwAcc[2]) * 180 / PI;
-        AngleEstimates[0] = AngleEstimates[0] * 0.98 + rollAcc * 0.02;
+        AngleEstimates[1] = AngleEstimates[1] * 0.98 + rollAcc * 0.02;
     }
 } 
 
@@ -146,7 +146,7 @@ void ApplyKalmanFiltering() {
   
   // Store g estimates into angle estimates 
   for (w = 0; w <= 2; w++) AngleEstimates[w] = g2degree(RwEst[w]);
-  }
+}
 
 void UpdatePIDController_X() {
   // compute the error between the measurement and the desired value
@@ -231,28 +231,21 @@ void setup() {
   XB_Servo.attach(XB_ServoPin);
   YA_Servo.attach(YA_ServoPin);
   YB_Servo.attach(YB_ServoPin);
-  set_X_Angle(180);
-  set_Y_Angle(180);
-  delay(1000);
-  set_X_Angle(0);
-  set_Y_Angle(0);
-  delay(1000);
-  set_X_Angle(90);
-  set_Y_Angle(90);
   Serial.begin(115200);
   while (!Serial) {
     delay(1); // will pause Zero, Leonardo, etc until serial console opens
   }
-
   Serial.println("LSM9DS1 Stabilized Rocket Demo");
 
   // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin()) {
+    FailureDance();
     Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
     while (1);
   }
+  SuccessDance();
   Serial.println("Found LSM9DS1 9DOF");
-  // helper to just set the default scaling we want, see above!
+  // helper to just set the default scaling we want
   setupSensor();
   // Add Comment
   getMachineState();
@@ -267,20 +260,7 @@ void loop() {
   UpdateLinearController_Y();
   //UpdatePIDController_X();
   //UpdatePIDController_Y();
-  Serial.print(0);
-  Serial.print(" ");
-  Serial.print(180);
-  Serial.print(" ");
-  Serial.println(AngleEstimates[0]);
-
-  /*Serial.print(y_config.AngleError);
-  Serial.print(" ");
-  Serial.print(y_config.IntegralTerm);
-  Serial.print(" ");
-  Serial.print(y_config.DerivativeTerm);
-  Serial.print(" ");
-  Serial.println(y_config.PID_Output);
-  */
+  PlotXY();
   delay(1000 / UPDATE_FREQUENCY); 
 }
 
@@ -348,6 +328,31 @@ void setupSensor() {
   lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
   // 3.) Setup the gyroscope
   lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
+}
+
+void SuccessDance() {
+  set_X_Angle(180);
+  set_Y_Angle(180);
+  delay(1000);
+  set_X_Angle(0);
+  set_Y_Angle(0);
+  delay(1000);
+  set_X_Angle(90);
+  set_Y_Angle(90);
+}
+
+void FailureDance() {
+  
+}
+
+void PlotXY(){
+  Serial.print(0);
+  Serial.print(" ");
+  Serial.print(180);
+  Serial.print(" ");
+  Serial.print(AngleEstimates[0]);
+  Serial.print(" ");
+  Serial.println(AngleEstimates[1]);
 }
 
 float squared(float x) {return x * x;}
