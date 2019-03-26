@@ -4,18 +4,18 @@
 #include <Adafruit_Sensor.h>  // not used in this code but required!
 #include <Adafruit_LSM9DS1.h>
 /////////////////////////
-#define XA_ServoPin      9
+#define YA_ServoPin      9
+#define YB_ServoPin      6
+#define XA_ServoPin      10
 #define XB_ServoPin      11
-#define YA_ServoPin      8
-#define YB_ServoPin      10
 ////////////////////////
-float P_GAIN =           0.09;
-float I_GAIN =           0.05;
-float D_GAIN =           0.75;
+float P_GAIN =           0.002     ;
+float I_GAIN =           0.0;
+float D_GAIN =           1.5;
 int   UPDATE_FREQUENCY = 500; //Hz
 #define DEADZONE         15 // Degrees
 /////////////////////////
-#define MAX_OFFSET      45
+#define MAX_OFFSET      90
 int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
 int MIN_ANGLE =         90 - MAX_OFFSET; // degrees
 //Globals
@@ -49,10 +49,10 @@ Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1();
 
 float RwEst[3];     //Rw estimated from combining RwAcc and RwGyro
 float AngleEstimates[3]; //
-unsigned long lastMicros;
+unsigned long K_lastMicros;
+unsigned long C_lastMicros;
 
 //Variables below don't need to be global but we expose them for debug purposes
-unsigned long interval; //interval since previous analog samples
 float RwAcc[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
 float RwGyro[3];        //Rw obtained from last estimated value and gyro movement
 float GyroTemp[3];
@@ -69,16 +69,44 @@ int CheckClamp(int a, char axis) {
   return angle;
 }
 
+#define ACCELEROMETER_SENSITIVITY 8192.0
+#define GYROSCOPE_SENSITIVITY 65.536    
+ 
+void ApplyComplementaryFiltering() {
+    float pitchAcc, rollAcc;               
+    //compute interval since last sampling time
+    static unsigned long newMicros = micros();
+    unsigned long delta_time = (newMicros - C_lastMicros)/1000.0f; //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
+    C_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
+
+    // Integrate the gyroscope data -> int(angularSpeed) = angle
+    AngleEstimates[1] += ((float)GyroTemp[0] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the X-axis
+    AngleEstimates[0] -= ((float)GyroTemp[1] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the Y-axis
+
+    // Compensate for drift with accelerometer data if !bullshit
+    // Sensitivity = -2 to 2 G at 16Bit -> 2G = 32768 && 0.5G = 8192
+    int forceMagnitudeApprox = abs(RwAcc[0]) + abs(RwAcc[1]) + abs(RwAcc[2]);
+    if (forceMagnitudeApprox > 8192 && forceMagnitudeApprox < 32768)
+    { 
+    // Turning around the X axis results in a vector on the Y-axis
+        pitchAcc = atan2f((float)RwAcc[1], (float)RwAcc[2]) * 180 / PI;
+        AngleEstimates[1] = AngleEstimates[1] * 0.98 + pitchAcc * 0.02;
+    // Turning around the Y axis results in a vector on the X-axis
+        rollAcc = atan2f((float)RwAcc[0], (float)RwAcc[2]) * 180 / PI;
+        AngleEstimates[0] = AngleEstimates[0] * 0.98 + rollAcc * 0.02;
+    }
+} 
+
 void ApplyKalmanFiltering() {
   static int w;
   static float rad;
-  static unsigned long newMicros; //new timestamp
   static char signRzGyro;
-  float wGyro = 10;
-  ////BELOW is likely removable
+  float wGyro = 20;
+
   //compute interval since last sampling time
-  interval = newMicros - lastMicros;    //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
-  lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
+  static unsigned long newMicros = micros();
+  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
+  K_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
 
   //normalize vector (convert to a vector with same direction and with length 1)
   normalize3DVector(RwAcc);
@@ -92,14 +120,14 @@ void ApplyKalmanFiltering() {
     //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
     for (w = 0; w <= 1; w++) {
       rad = GyroTemp[w];                             // get current gyro rate in deg/ms
-      rad *= interval / 1000.0f;                     // get angle change in deg
+      rad *= delta_time / 1000.0f;    //interval == delta_time //in seconds                 // get angle change in deg
       Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
       Awz[w] += rad;                                 // get updated angle according to gyro movement
     }
 
     // estimate sign of RzGyro by looking in what qudrant the angle Axz is,
     // RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
-    signRzGyro = GyroTemp][2]/abs(GyroTemp[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
+    signRzGyro = GyroTemp[2]/abs(GyroTemp[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
 
     // reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
     for (w = 0; w <= 1; w++) {
@@ -130,7 +158,7 @@ void UpdatePIDController_X() {
     x_config.DerivativeTerm = x_config.AngleError - x_config.lastAngleError;
     // If the actuator is saturating ignore the integral term
     // if the system is clamped and the sign of the integrator term and the sign of the PID output are the same
-    if (x_config.Clamped and sameSign(x_config.PID_Output, x_config.IntegralTerm) {
+    if (x_config.Clamped and sameSign(x_config.PID_Output, x_config.IntegralTerm)) {
       x_config.IntegralTerm += 0;
     } else {
       x_config.IntegralTerm += x_config.AngleError;
@@ -203,6 +231,12 @@ void setup() {
   XB_Servo.attach(XB_ServoPin);
   YA_Servo.attach(YA_ServoPin);
   YB_Servo.attach(YB_ServoPin);
+  set_X_Angle(180);
+  set_Y_Angle(180);
+  delay(1000);
+  set_X_Angle(0);
+  set_Y_Angle(0);
+  delay(1000);
   set_X_Angle(90);
   set_Y_Angle(90);
   Serial.begin(115200);
@@ -227,13 +261,18 @@ void setup() {
 
 void loop() {
   getMachineState();
-  ApplyKalmanFiltering();
+  //ApplyKalmanFiltering();
+  ApplyComplementaryFiltering();
   UpdateLinearController_X();
   UpdateLinearController_Y();
-  /* 
-  UpdatePIDController_X();
-  UpdatePIDController_Y();
-  Serial.print(y_config.AngleError);
+   Serial.print(0);
+  Serial.print(" ");
+  Serial.print(180);
+  Serial.print(" ");
+  Serial.println(AngleEstimates[0]);
+  //UpdatePIDController_X();
+  //UpdatePIDController_Y();
+  /*Serial.print(y_config.AngleError);
   Serial.print(" ");
   Serial.print(y_config.IntegralTerm);
   Serial.print(" ");
@@ -303,7 +342,7 @@ void normalize3DVector(float* vector) {
 
 void setupSensor() {
   // 1.) Set the accelerometer range
-  lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_16G);
+  lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
   // 2.) Set the magnetometer sensitivity
   lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
   // 3.) Setup the gyroscope
@@ -314,4 +353,4 @@ float squared(float x) {return x * x;}
 
 int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
 
-bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b)) }
+bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b));}
