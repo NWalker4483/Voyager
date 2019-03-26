@@ -12,7 +12,7 @@
 float P_GAIN =           0.002     ;
 float I_GAIN =           0.0;
 float D_GAIN =           1.5;
-int   UPDATE_FREQUENCY = 500; //Hz
+int   UPDATE_FREQUENCY = 10000; //Hz
 #define DEADZONE         15 // Degrees
 
 #define ACCELEROMETER_SENSITIVITY 8192.0
@@ -86,14 +86,14 @@ void ApplyComplementaryFiltering() {
     // Compensate for drift with accelerometer data if !bullshit
     // Sensitivity = -2 to 2 G at 16Bit -> 2G = 32768 && 0.5G = 8192
     int forceMagnitudeApprox = abs(RwAcc[0]) + abs(RwAcc[1]) + abs(RwAcc[2]);
-    if (forceMagnitudeApprox > 8192 && forceMagnitudeApprox < 32768)
+    if (forceMagnitudeApprox > .5 && forceMagnitudeApprox < 2)
     { 
     // Turning around the X axis results in a vector on the Y-axis
         pitchAcc = atan2f((float)RwAcc[1], (float)RwAcc[2]) * 180 / PI;
-        AngleEstimates[0] = AngleEstimates[0] * 0.98 + pitchAcc * 0.02;
+        AngleEstimates[0] = 90 + (AngleEstimates[0] - 90) * 0.85 + pitchAcc * 0.15;
     // Turning around the Y axis results in a vector on the X-axis
         rollAcc = atan2f((float)RwAcc[0], (float)RwAcc[2]) * 180 / PI;
-        AngleEstimates[1] = AngleEstimates[1] * 0.98 + rollAcc * 0.02;
+        AngleEstimates[1] = 90 + (AngleEstimates[1] - 90) * 0.85 + rollAcc * 0.15;
     }
 } 
 
