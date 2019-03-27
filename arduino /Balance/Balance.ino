@@ -9,9 +9,9 @@
 #define XA_ServoPin      10
 #define XB_ServoPin      11
 ////////////////////////
-float P_GAIN =           0.002     ;
-float I_GAIN =           0.0;
-float D_GAIN =           1.5;
+float P_GAIN =           0.2     ;
+float I_GAIN =           0.02 ;
+float D_GAIN =           0.09 ;
 int   UPDATE_FREQUENCY = 10000; //Hz
 #define DEADZONE         15 // Degrees
 
@@ -243,8 +243,8 @@ void setup() {
     Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
     while (1);
   }
-  SuccessDance();
   Serial.println("Found LSM9DS1 9DOF");
+  SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
   // Add Comment
@@ -271,8 +271,7 @@ float ShortestAngularPath(int angle, int goal) {
   if (goal <= 180) { // Theoretically fails for goal angles above 180 degrees
     if ((angle < goal) or (angle > (goal + 180))) {
       dist = dist;
-    }
-    else {
+    } else {
       dist = dist * -1;
     }
   }
@@ -283,9 +282,9 @@ void set_X_Angle(int angle) {
   int inv_angle;
   angle = constrain(angle, MIN_ANGLE, MAX_ANGLE);
   if (angle > goal_x_angle) {
-      inv_angle = angle - (2*abs(angle - goal_x_angle));
+    inv_angle = angle - (2*abs(angle - goal_x_angle));
   } else {
-      inv_angle = angle + (2*abs(angle - goal_x_angle));
+    inv_angle = angle + (2*abs(angle - goal_x_angle));
   }
   XA_Servo.write(angle);
   XB_Servo.write(inv_angle);
@@ -342,7 +341,16 @@ void SuccessDance() {
 }
 
 void FailureDance() {
-  
+  YA_Servo.write(0);
+  delay(300);
+  XB_Servo.write(0);
+  delay(300);
+  YB_Servo.write(0);
+  delay(300);
+  XA_Servo.write(0);
+  delay(1000);
+  set_X_Angle(90);
+  set_Y_Angle(90);
 }
 
 void PlotXY(){
