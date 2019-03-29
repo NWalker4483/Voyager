@@ -38,7 +38,7 @@ struct config {
   float PID_Output = 0;
   float AngleError = 0;
   float lastAngleError = 0;
-}; 
+  }; 
 
 struct config x_config;
 struct config y_config;
@@ -57,9 +57,7 @@ unsigned long C_lastMicros;
 
 //Variables below don't need to be global but we expose them for debug purposes
 float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
-float RwGyro[3];        //Rw obtained from last estimated value and gyro movement
 float Gyro[3];
-float Awz[2];           //angles between projection of R on XZ/YZ plane and Z axis (deg)
 int CheckClamp(int, char); 
 void ApplyComplementaryFiltering() {
     float pitchAcc, rollAcc;               
@@ -84,58 +82,9 @@ void ApplyComplementaryFiltering() {
         rollAcc = atan2f((float)Accel[0], (float)Accel[2]) * 180 / PI;
         AngleEstimates[1] = 90 + (AngleEstimates[1] - 90) * 0.85 + rollAcc * 0.15;
     }
-} 
+  } 
 
-void ApplyKalmanFiltering() {
-  static int w;
-  static float rad;
-  static char signRzGyro;
-  float wGyro = 20;
 
-  //compute interval since last sampling time
-  static unsigned long newMicros = micros();
-  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //in seconds //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
-  K_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
-
-  //normalize vector (convert to a vector with same direction and with length 1)
-  normalize3DVector(Accel);
-
-  //evaluate RwGyro vector
-  if (abs(RwEst[2]) < 0.1) {
-    //Thetaz is too small and because it is used as reference for computing Axz, Ayz it's error fluctuations will amplify leading to bad results
-    //in this case skip the gyro data and just use previous estimate
-    for (w = 0; w <= 2; w++) RwGyro[w] = RwEst[w];
-  } else {
-    //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
-    for (w = 0; w <= 1; w++) {
-      rad = Gyro[w];           // get current gyro rate in deg/ms
-      rad *= delta_time;           // get angle change in deg
-      Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
-      Awz[w] += rad;                                 // get updated angle according to gyro movement
-    }
-
-    // estimate sign of RzGyro by looking in what qudrant the angle Axz is,
-    // RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
-    signRzGyro = Gyro[2]/abs(Gyro[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
-
-    // reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
-    for (w = 0; w <= 1; w++) {
-      RwGyro[0] = sin(Awz[0] * PI / 180);
-      RwGyro[0] /= sqrt( 1 + squared(cos(Awz[0] * PI / 180)) * squared(tan(Awz[1] * PI / 180)) );
-      RwGyro[1] = sin(Awz[1] * PI / 180);
-      RwGyro[1] /= sqrt( 1 + squared(cos(Awz[1] * PI / 180)) * squared(tan(Awz[0] * PI / 180)) );
-    }
-    RwGyro[2] = signRzGyro * sqrt(1 - squared(RwGyro[0]) - squared(RwGyro[1]));
-  }
-
-  // Combine Accelerometer and gyro readings
-  for (w = 0; w <= 2; w++) RwEst[w] = (Accel[w] + wGyro * RwGyro[w]) / (1 + wGyro);
-
-  normalize3DVector(RwEst);
-  
-  // Store g estimates into angle estimates 
-  for (w = 0; w <= 2; w++) AngleEstimates[w] = g2degree(RwEst[w]);
-}
 
 void UpdatePIDController_X() {
   // compute the error between the measurement and the desired value
@@ -251,9 +200,9 @@ void loop() {
   //UpdatePIDController_Y();
   PlotXY();
   delay(1000 / CONTROLLER_UPDATE_FREQUENCY); 
-}
-// Bound the input value between x_min and x_max. Also works in anti-windup
+  }
 int CheckClamp(int a, char axis) {
+  // Bound the input value between x_min and x_max. Also works in anti-windup
   int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
   if (axis == 'x') {
       x_config.Clamped = not (angle == a);
@@ -263,8 +212,9 @@ int CheckClamp(int a, char axis) {
   return angle;
   }
  
-// Minimum degree shifts in order to reach goal
+
 float ShortestAngularPath(int angle, int goal) {
+  // Minimum degree shifts in order to reach goal
   double raw_diff = angle > goal ? angle - goal : goal - angle;
   double dist = raw_diff > 180.0 ? 360.0 - raw_diff : raw_diff;
   if (goal <= 180) { // Theoretically fails for goal angles above 180 degrees
@@ -306,7 +256,7 @@ void set_X_Goal(int angle) { // -180 :-: 180
   goal_x_angle = angle;
   }
 
-void set_Y_Goal(int angle) { // -18 0 :-: 180
+void set_Y_Goal(int angle) { // -180 :-: 180
   angle = constrain(angle, -MAX_ANGLE, MAX_ANGLE); // Speed Limit
   goal_y_angle = angle;
   }
@@ -366,3 +316,56 @@ void PlotXY(){
 float squared(float x) {return x * x;}
 int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
 bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b));}
+///////////IN DEVELOPMENT//////////////
+float Awz[2];           //angles between projection of R on XZ/YZ plane and Z axis (deg)
+float RwGyro[3];        //Rw obtained from last estimated value and gyro movement
+void ApplyKalmanFiltering() {
+  static int w;
+  static float rad;
+  static char signRzGyro;
+  static float wGyro = 20;
+
+  //compute interval since last sampling time
+  static unsigned long newMicros = micros();
+  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //in seconds //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
+  K_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
+
+  //normalize vector (convert to a vector with same direction and with length 1)
+  normalize3DVector(Accel);
+
+  //evaluate RwGyro vector
+  if (abs(RwEst[2]) < 0.1) {
+    //Thetaz is too small and because it is used as reference for computing Axz, Ayz it's error fluctuations will amplify leading to bad results
+    //in this case skip the gyro data and just use previous estimate
+    for (w = 0; w <= 2; w++) RwGyro[w] = RwEst[w];
+  } else {
+    //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
+    for (w = 0; w <= 1; w++) {
+      rad = Gyro[w];           // get current gyro rate in deg/ms
+      rad *= delta_time;           // get angle change in deg
+      Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
+      Awz[w] += rad;                                 // get updated angle according to gyro movement
+    }
+
+    // estimate sign of RzGyro by looking in what qudrant the angle Axz is,
+    // RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
+    signRzGyro = Gyro[2]/abs(Gyro[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
+
+    // reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
+    for (w = 0; w <= 1; w++) {
+      RwGyro[0] = sin(Awz[0] * PI / 180);
+      RwGyro[0] /= sqrt( 1 + squared(cos(Awz[0] * PI / 180)) * squared(tan(Awz[1] * PI / 180)) );
+      RwGyro[1] = sin(Awz[1] * PI / 180);
+      RwGyro[1] /= sqrt( 1 + squared(cos(Awz[1] * PI / 180)) * squared(tan(Awz[0] * PI / 180)) );
+    }
+    RwGyro[2] = signRzGyro * sqrt(1 - squared(RwGyro[0]) - squared(RwGyro[1]));
+  }
+
+  // Combine Accelerometer and gyro readings
+  for (w = 0; w <= 2; w++) RwEst[w] = (Accel[w] + wGyro * RwGyro[w]) / (1 + wGyro);
+
+  normalize3DVector(RwEst);
+  
+  // Store g estimates into angle estimates 
+  for (w = 0; w <= 2; w++) AngleEstimates[w] = g2degree(RwEst[w]);
+  }
