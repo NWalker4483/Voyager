@@ -58,21 +58,17 @@ bool Launched = false;
 float RwEst[3];     //Rw estimated from combining Accel and RwGyro
 float AngleEstimates[3]; //
 unsigned long K_lastMicros;
-unsigned long C_lastMicros;
+unsigned long C_lastMillis;
 
 //Variables below don't need to be global but we expose them for debug purposes
 float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
-float Gyro[3];
+float Gyro[3];          // Gyro Readings in deg/sec
 int CheckClamp(int, char); 
 void LandingDetected();
 bool LaunchDetected();
-void ApplyComplementaryFiltering() {
+void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
-    //compute interval since last sampling time
-    static unsigned long newMicros = micros();
-    unsigned long delta_time = (newMicros - C_lastMicros)/1000.0f; //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
-    C_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
-
+    delta_time /= 1000.0f; //Convert to seconds 
     // Integrate the gyroscope data -> int(angularSpeed) = angle
     AngleEstimates[0] += ((float)Gyro[0] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the X-axis
     AngleEstimates[1] -= ((float)Gyro[1] / GYROSCOPE_SENSITIVITY) * delta_time; // Angle around the Y-axis
@@ -90,8 +86,6 @@ void ApplyComplementaryFiltering() {
         AngleEstimates[1] = 90 + (AngleEstimates[1] - 90) * 0.85 + rollAcc * 0.15;
     }
   } 
-
-
 
 void UpdatePIDController_X() {
   // compute the error between the measurement and the desired value
@@ -151,9 +145,9 @@ void UpdateLinearController_X() {
 
 void UpdateLinearController_Y() {
   // compute the error between the measurement and the desired value
-    y_config.AngleError = -ShortestAngularPath(AngleEstimates[1], goal_y_angle);
-    current_y_angle_setting = y_config.AngleError + AngleEstimates[1];
-    set_Y_Angle(current_y_angle_setting); // then write it to the LED pin to change control voltage to LED
+  y_config.AngleError = -ShortestAngularPath(AngleEstimates[1], goal_y_angle);
+  current_y_angle_setting = y_config.AngleError + AngleEstimates[1];
+  set_Y_Angle(current_y_angle_setting); // then write it to the LED pin to change control voltage to LED
   }
 
 void getMachineState() {
@@ -203,13 +197,12 @@ void setup() {
   // Add Comment
   getMachineState();
   for (int i = 0; i <= 2; i++) RwEst[i] = Accel[i]; //initialize with accelerometer readings
-  TrackedTimes[0] = millis();
   }
 
 void loop() {
   if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { // Enter Timed Loop 
     getMachineState();
-    ApplyComplementaryFiltering();
+    ApplyComplementaryFiltering(millis() - TrackedTimes[2]);
     TrackedTimes[2] = millis();
   }
   if (Launched){
@@ -226,23 +219,10 @@ void loop() {
     }
     //LandingDetected();
   } else {
+    TrackedTimes[0] = millis(); // Time since launch
     //Launched = LaunchDetected();
   }
   //PlotXY(); 
-  }
-
-float ShortestAngularPath(int angle, int goal) {
-  // Minimum degree shifts in order to reach goal
-  double raw_diff = angle > goal ? angle - goal : goal - angle;
-  double dist = raw_diff > 180.0 ? 360.0 - raw_diff : raw_diff;
-  if (goal <= 180) { // Theoretically fails for goal angles above 180 degrees
-    if ((angle < goal) or (angle > (goal + 180))) {
-      dist = dist;
-    } else {
-      dist = dist * -1;
-    }
-  }
-  return dist;
   }
 
 ///////// SETTERS ////////////////////
@@ -326,8 +306,21 @@ void PlotXY(){
   }
 void LogStateEstimates(){
   Logger.println("testing 1, 2, 3.");
-}
+  }
 ///////// HELPER FUNCTION ///////
+float ShortestAngularPath(int angle, int goal) {
+  // Minimum degree shifts in order to reach goal
+  double raw_diff = angle > goal ? angle - goal : goal - angle;
+  double dist = raw_diff > 180.0 ? 360.0 - raw_diff : raw_diff;
+  if (goal <= 180) { // Theoretically fails for goal angles above 180 degrees
+    if ((angle < goal) or (angle > (goal + 180))) {
+      dist = dist;
+    } else {
+      dist = dist * -1;
+    }
+  }
+  return dist;
+  }
 int CheckClamp(int a, char axis) {
   // Bound the input value between x_min and x_max. Also works in anti-windup
   int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
@@ -351,55 +344,4 @@ void normalize3DVector(float* vector) {
   vector[0] /= R;
   vector[1] /= R;
   vector[2] /= R;
-  }
-  
-void ApplyKalmanFiltering() {
-  static int w;
-  static float rad;
-  static char signRzGyro;
-  static float wGyro = 20;
-
-  //compute interval since last sampling time
-  static unsigned long newMicros = micros();
-  unsigned long delta_time = (newMicros - K_lastMicros)/1000.0f; //in seconds //please note that overflows are ok, since for example 0x0001 - 0x00FE will be equal to 2
-  K_lastMicros = newMicros;               //save for next loop, please note interval will be invalid in first sample but we don't use it
-
-  //normalize vector (convert to a vector with same direction and with length 1)
-  normalize3DVector(Accel);
-
-  //evaluate RwGyro vector
-  if (abs(RwEst[2]) < 0.1) {
-    //Thetaz is too small and because it is used as reference for computing Axz, Ayz it's error fluctuations will amplify leading to bad results
-    //in this case skip the gyro data and just use previous estimate
-    for (w = 0; w <= 2; w++) RwGyro[w] = RwEst[w];
-  } else {
-    //get angles between projection of R on ZX/ZY plane and Z axis, based on last RwEst
-    for (w = 0; w <= 1; w++) {
-      rad = Gyro[w];           // get current gyro rate in deg/ms
-      rad *= delta_time;           // get angle change in deg
-      Awz[w] = atan2(RwEst[w], RwEst[2]) * 180 / PI;  // get angle and convert to degrees
-      Awz[w] += rad;                                 // get updated angle according to gyro movement
-    }
-
-    // estimate sign of RzGyro by looking in what qudrant the angle Axz is,
-    // RzGyro is pozitive if  Axz in range -90 ..90 => cos(Awz) >= 0
-    signRzGyro = Gyro[2]/abs(Gyro[2]); // (cos(Awz[0] * PI / 180) >= 0 ) ? 1 : -1;
-
-    // reverse calculation of RwGyro from Awz angles, for formulas deductions see  http://starlino.com/imu_guide.html
-    for (w = 0; w <= 1; w++) {
-      RwGyro[0] = sin(Awz[0] * PI / 180);
-      RwGyro[0] /= sqrt( 1 + squared(cos(Awz[0] * PI / 180)) * squared(tan(Awz[1] * PI / 180)) );
-      RwGyro[1] = sin(Awz[1] * PI / 180);
-      RwGyro[1] /= sqrt( 1 + squared(cos(Awz[1] * PI / 180)) * squared(tan(Awz[0] * PI / 180)) );
-    }
-    RwGyro[2] = signRzGyro * sqrt(1 - squared(RwGyro[0]) - squared(RwGyro[1]));
-  }
-
-  // Combine Accelerometer and gyro readings
-  for (w = 0; w <= 2; w++) RwEst[w] = (Accel[w] + wGyro * RwGyro[w]) / (1 + wGyro);
-
-  normalize3DVector(RwEst);
-  
-  // Store g estimates into angle estimates 
-  for (w = 0; w <= 2; w++) AngleEstimates[w] = g2degree(RwEst[w]);
   }

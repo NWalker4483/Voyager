@@ -16,6 +16,7 @@ Launch a robot from a balloon
 * [Rocket Body Shop](https://www.apogeerockets.com/Building_Supplies/Body_Tubes)
 ## Is this even legal?
 * Do I even care? Yes I do ... alot.
+* Due to ITAR Part 121.1, Category IV, I cannot and will not release any CAD Models, code, or build it for you or anyone.
 ## Research Links 
 * https://www.youtube.com/watch?v=ZUgAvma_vBc
 * [Example Auto Stabilizing Rocket](https://workshopscience.com/arduino-rocket-stabilization/)
