@@ -13,8 +13,10 @@
 float P_GAIN =           0.2     ;
 float I_GAIN =           0.02 ;
 float D_GAIN =           0.09 ;
-#define CONTROLLER_UPDATE_FREQUENCY = 300; //Hz
-#define ESTIMATE_UPDATE_FREQUENCY = 200; //Hz
+unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
+#define TOTAL_FLIGHT_TIME 7000
+#define CONTROLLER_UPDATE_FREQUENCY 300 //Hz
+#define ESTIMATE_UPDATE_FREQUENCY 200 //Hz
 #define LOGGING_FREQUENCY 300 //Hz
 #define DEADZONE         15 // Degrees
 ///////////////////////////////
@@ -24,7 +26,6 @@ float D_GAIN =           0.09 ;
 int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
 int MIN_ANGLE =         90 - MAX_OFFSET; // degrees
 //Globals
-unsigned long lastMilli = 0; // time at the end of the last loop
 
 int current_x_angle_setting = 0;
 int current_y_angle_setting = 0;
@@ -63,6 +64,8 @@ unsigned long C_lastMicros;
 float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
 float Gyro[3];
 int CheckClamp(int, char); 
+void LandingDetected();
+bool LaunchDetected();
 void ApplyComplementaryFiltering() {
     float pitchAcc, rollAcc;               
     //compute interval since last sampling time
@@ -200,23 +203,32 @@ void setup() {
   // Add Comment
   getMachineState();
   for (int i = 0; i <= 2; i++) RwEst[i] = Accel[i]; //initialize with accelerometer readings
+  TrackedTimes[0] = millis();
   }
 
 void loop() {
-  getMachineState();
-  ApplyComplementaryFiltering();
-  if (Launched){
-    UpdateLinearController_X();
-    UpdateLinearController_Y();
-    //UpdatePIDController_X();
-    //UpdatePIDController_Y();
-    LogStateEstimates();
-    LandingDetected();
-  } else {
-    Launched = LaunchDetected();
+  if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { // Enter Timed Loop 
+    getMachineState();
+    ApplyComplementaryFiltering();
+    TrackedTimes[2] = millis();
   }
-  //PlotXY();
-  delay(1000 / CONTROLLER_UPDATE_FREQUENCY); 
+  if (Launched){
+    if(millis() - TrackedTimes[1] >= (1000 / CONTROLLER_UPDATE_FREQUENCY)) { // Enter Timed Loop 
+      UpdateLinearController_X();
+      UpdateLinearController_Y();
+      //UpdatePIDController_X();
+      //UpdatePIDController_Y();
+      TrackedTimes[1] = millis();
+    }
+    if(millis() - TrackedTimes[3] >= (1000 / LOGGING_FREQUENCY)) { // Enter Timed Loop 
+      LogStateEstimates();
+      TrackedTimes[3] = millis();
+    }
+    //LandingDetected();
+  } else {
+    //Launched = LaunchDetected();
+  }
+  //PlotXY(); 
   }
 
 float ShortestAngularPath(int angle, int goal) {
@@ -313,7 +325,7 @@ void PlotXY(){
   Serial.println(AngleEstimates[1]);
   }
 void LogStateEstimates(){
-  Logger.println("testing 1, 2, 3.")
+  Logger.println("testing 1, 2, 3.");
 }
 ///////// HELPER FUNCTION ///////
 int CheckClamp(int a, char axis) {
@@ -340,6 +352,7 @@ void normalize3DVector(float* vector) {
   vector[1] /= R;
   vector[2] /= R;
   }
+  
 void ApplyKalmanFiltering() {
   static int w;
   static float rad;
