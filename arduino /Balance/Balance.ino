@@ -32,7 +32,6 @@ int current_y_angle_setting = 0;
 
 float goal_x_angle = 90;
 float goal_y_angle = 90;
-float current_steering_angle = 0;
 
 struct config {          
   bool  Clamped = false;
@@ -55,10 +54,7 @@ Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1();
 File Logger;
 bool Launched = false;
 
-float RwEst[3];     //Rw estimated from combining Accel and RwGyro
 float AngleEstimates[3]; //
-unsigned long K_lastMicros;
-unsigned long C_lastMillis;
 
 //Variables below don't need to be global but we expose them for debug purposes
 float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
@@ -66,6 +62,7 @@ float Gyro[3];          // Gyro Readings in deg/sec
 int CheckClamp(int, char); 
 void LandingDetected();
 bool LaunchDetected();
+
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
     delta_time /= 1000.0f; //Convert to seconds 
@@ -196,7 +193,6 @@ void setup() {
   setupSensor();
   // Add Comment
   getMachineState();
-  for (int i = 0; i <= 2; i++) RwEst[i] = Accel[i]; //initialize with accelerometer readings
   }
 
 void loop() {
