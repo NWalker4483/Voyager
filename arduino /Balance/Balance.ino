@@ -1,19 +1,21 @@
 #include <Servo.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <SD.h>
 #include <Adafruit_Sensor.h>  // not used in this code but required!
 #include <Adafruit_LSM9DS1.h>
 /////////////////////////
 #define YB_ServoPin      9
 #define YA_ServoPin      6
 #define XA_ServoPin      10
-#define XB_ServoPin      11
+#define XB_ServoPin      11 //#TODO: Rewire from pin 11 to free up MOSI Pin 
 ////////////////////////
 float P_GAIN =           0.2     ;
 float I_GAIN =           0.02 ;
 float D_GAIN =           0.09 ;
-int   CONTROLLER_UPDATE_FREQUENCY = 10000; //Hz
-int   ESTIMATE_UPDATE_FREQUENCY = 200; //Hz
+#define CONTROLLER_UPDATE_FREQUENCY = 300; //Hz
+#define ESTIMATE_UPDATE_FREQUENCY = 200; //Hz
+#define LOGGING_FREQUENCY 300 //Hz
 #define DEADZONE         15 // Degrees
 ///////////////////////////////
 #define GYROSCOPE_SENSITIVITY 65.536    
@@ -49,6 +51,8 @@ Servo YA_Servo;
 Servo YB_Servo;
 // Initialize the IMU Sensor
 Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1();
+File Logger;
+bool Launched = false;
 
 float RwEst[3];     //Rw estimated from combining Accel and RwGyro
 float AngleEstimates[3]; //
@@ -182,6 +186,14 @@ void setup() {
     while (1);
   }
   Serial.println("Found LSM9DS1 9DOF");
+  if (!SD.begin(4)) {
+    Serial.println("SD Card initialization failed!");
+    while (1);
+  }
+  Serial.println("SD Card Initialized");
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  Logger = SD.open("last_flight.txt", FILE_WRITE);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -192,26 +204,20 @@ void setup() {
 
 void loop() {
   getMachineState();
-  //ApplyKalmanFiltering();
   ApplyComplementaryFiltering();
-  UpdateLinearController_X();
-  UpdateLinearController_Y();
-  //UpdatePIDController_X();
-  //UpdatePIDController_Y();
-  PlotXY();
+  if (Launched){
+    UpdateLinearController_X();
+    UpdateLinearController_Y();
+    //UpdatePIDController_X();
+    //UpdatePIDController_Y();
+    LogStateEstimates();
+    LandingDetected();
+  } else {
+    Launched = LaunchDetected();
+  }
+  //PlotXY();
   delay(1000 / CONTROLLER_UPDATE_FREQUENCY); 
   }
-int CheckClamp(int a, char axis) {
-  // Bound the input value between x_min and x_max. Also works in anti-windup
-  int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
-  if (axis == 'x') {
-      x_config.Clamped = not (angle == a);
-  } else if (axis == 'y') {
-      y_config.Clamped = not (angle == a);
-  }
-  return angle;
-  }
- 
 
 float ShortestAngularPath(int angle, int goal) {
   // Minimum degree shifts in order to reach goal
@@ -227,6 +233,7 @@ float ShortestAngularPath(int angle, int goal) {
   return dist;
   }
 
+///////// SETTERS ////////////////////
 void set_X_Angle(int angle) {
   int inv_angle;
   angle = constrain(angle, MIN_ANGLE, MAX_ANGLE);
@@ -260,15 +267,6 @@ void set_Y_Goal(int angle) { // -180 :-: 180
   angle = constrain(angle, -MAX_ANGLE, MAX_ANGLE); // Speed Limit
   goal_y_angle = angle;
   }
-
-void normalize3DVector(float* vector) {
-  static float R;
-  R = sqrt(squared(vector[0]) + squared(vector[1]) + squared(vector[2]));
-  vector[0] /= R;
-  vector[1] /= R;
-  vector[2] /= R;
-  }
-
 void setupSensor() {
   // 1.) Set the accelerometer range
   lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
@@ -278,6 +276,8 @@ void setupSensor() {
   lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
   }
 
+
+////////  USER POINTED FUNCTIONS ////////
 void SuccessDance() {
   set_X_Angle(180);
   set_Y_Angle(180);
@@ -312,13 +312,34 @@ void PlotXY(){
   Serial.print(" ");
   Serial.println(AngleEstimates[1]);
   }
-
-float squared(float x) {return x * x;}
-int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
+void LogStateEstimates(){
+  Logger.println("testing 1, 2, 3.")
+}
+///////// HELPER FUNCTION ///////
+int CheckClamp(int a, char axis) {
+  // Bound the input value between x_min and x_max. Also works in anti-windup
+  int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
+  if (axis == 'x') {
+      x_config.Clamped = not (angle == a);
+  } else if (axis == 'y') {
+      y_config.Clamped = not (angle == a);
+  }
+  return angle;
+  }
+ 
 bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b));}
 ///////////IN DEVELOPMENT//////////////
 float Awz[2];           //angles between projection of R on XZ/YZ plane and Z axis (deg)
 float RwGyro[3];        //Rw obtained from last estimated value and gyro movement
+float squared(float x) {return x * x;}
+int g2degree(float g) {return constrain(((g + 1) / 2) * 180, 0, 180);} 
+void normalize3DVector(float* vector) {
+  static float R;
+  R = sqrt(squared(vector[0]) + squared(vector[1]) + squared(vector[2]));
+  vector[0] /= R;
+  vector[1] /= R;
+  vector[2] /= R;
+  }
 void ApplyKalmanFiltering() {
   static int w;
   static float rad;
