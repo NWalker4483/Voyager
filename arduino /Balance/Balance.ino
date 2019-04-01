@@ -5,10 +5,10 @@
 #include <Adafruit_Sensor.h>  // not used in this code but required!
 #include <Adafruit_LSM9DS1.h>
 /////////////////////////
-#define YB_ServoPin      9
-#define YA_ServoPin      6
-#define XA_ServoPin      10
-#define XB_ServoPin      11 //#TODO: Rewire from pin 11 to free up MOSI Pin 
+#define YB_ServoPin      6
+#define YA_ServoPin      5
+#define XA_ServoPin      9
+#define XB_ServoPin      10 //#TODO: Rewire from pin 11 to free up MOSI Pin 
 ////////////////////////
 float P_GAIN =           0.2     ;
 float I_GAIN =           0.02 ;
@@ -20,7 +20,7 @@ unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
 #define LOGGING_FREQUENCY 300 //Hz
 #define DEADZONE         15 // Degrees
 ///////////////////////////////
-#define GYROSCOPE_SENSITIVITY 65.536    
+#define GYROSCOPE_SENSITIVITY 65.536    // Definitely forgot what this number means 
 /////////////////////////
 #define MAX_OFFSET      90
 int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
@@ -61,7 +61,6 @@ float Accel[3];         //projection of normalized gravitation force vector on x
 float Gyro[3];          // Gyro Readings in deg/sec
 int CheckClamp(int, char); 
 void LandingDetected();
-bool LaunchDetected();
 
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
@@ -180,14 +179,18 @@ void setup() {
     while (1);
   }
   Serial.println("Found LSM9DS1 9DOF");
+  /*
   if (!SD.begin(4)) {
     Serial.println("SD Card initialization failed!");
     while (1);
   }
   Serial.println("SD Card Initialized");
+  Logger = SD.open("last_flight.txt", FILE_WRITE);
+  */
+  Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
-  Logger = SD.open("last_flight.txt", FILE_WRITE);
+
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -216,7 +219,7 @@ void loop() {
     //LandingDetected();
   } else {
     TrackedTimes[0] = millis(); // Time since launch
-    //Launched = LaunchDetected();
+    Launched = LaunchDetected();
   }
   //PlotXY(); 
   }
@@ -303,6 +306,11 @@ void PlotXY(){
 void LogStateEstimates(){
   Logger.println("testing 1, 2, 3.");
   }
+////////// IN-FLIGHT HELPER FUNCTIONS ////
+bool LaunchDetected(){
+  if (millis() > 3000){return true;}
+  return false;
+}
 ///////// HELPER FUNCTION ///////
 float ShortestAngularPath(int angle, int goal) {
   // Minimum degree shifts in order to reach goal
