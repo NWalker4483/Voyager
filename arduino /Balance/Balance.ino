@@ -9,8 +9,8 @@
 #define XA_ServoPin      9
 #define XB_ServoPin      10 //#TODO: Rewire from pin 11 to free up MOSI Pin 
 ////////////////////////
-#define P_GAIN           0.8     
-#define I_GAIN           0.03 
+#define P_GAIN           0.3     
+#define I_GAIN           0.07 
 #define D_GAIN           0.2 
 unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
 #define TOTAL_FLIGHT_TIME 7000
@@ -43,7 +43,7 @@ class PIDController
       return value;
     }
   public:
-    int DEADZONE = 10;
+    int DEADZONE = 0;
     
     int Output = 0;
     float lastError = 0;
@@ -233,9 +233,6 @@ void set_Y_Angle(int angle) {
 void setupSensor() {
   // 1.) Set the accelerometer range
   lsm.setupAccel(lsm.LSM9DS1_ACCELRANGE_2G);
-  /*/ 2.) Set the magnetometer sensitivity
-  lsm.setupMag(lsm.LSM9DS1_MAGGAIN_4GAUSS);
-  */
   // 3.) Setup the gyroscope
   lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
   }
