@@ -47,7 +47,6 @@ class PIDController
     
     int Output = 0;
     float lastError = 0;
-    float lastOutput = 0;
     int TargetValue;
     float (*ErrorFunction)(int, int);
     PIDController(int targ, int mini, int maxi) {
@@ -61,14 +60,14 @@ class PIDController
       min_value = mini;
       max_value = maxi;
       }
-    void set_Target(int value ) { // -180 :-: 180
+    void set_Target(int value ) { // 0 :-: 180
       TargetValue = constrain(value, min_value, max_value); // Speed Limit
       }
     void Update(int MeasuredValue){
       // compute the error between the measurement and the desired value
       Error = (*ErrorFunction)(MeasuredValue, TargetValue);
       if (abs(Error) <= DEADZONE) { // Deadzone // Stop if close enough to prevent oscillations
-        lastOutput = TargetValue;
+        Output = TargetValue;
       } else {
         DerivativeTerm = Error - lastError;
         // If the actuator is saturating ignore the integral term
@@ -83,7 +82,7 @@ class PIDController
         lastError = Error;
 
         // make sure the output value is bounded to 0 to 100 using the bound function defined below
-        lastOutput = CheckClamp(lastOutput);
+        Output = CheckClamp(Output);
       }
     }
   };
@@ -146,9 +145,6 @@ void setup() {
   YA_Servo.attach(YA_ServoPin);
   YB_Servo.attach(YB_ServoPin);
   Serial.begin(115200);
-  while (!Serial) {
-    delay(1); // will pause Zero, Leonardo, etc until serial console opens
-  }
   Serial.println("LSM9DS1 Stabilized Rocket Demo");
 
   // Try to initialise and warn if we couldn't detect the chip
@@ -156,14 +152,15 @@ void setup() {
     FailureDance();
     Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
     while (1);
-  }
+  } else {
   Serial.println("Found LSM9DS1 9DOF");
-  
+  }
   if (!SD.begin(4)) {
     Serial.println("SD Card initialization failed!");
     //while (1);
+  } else {
+    Serial.println("SD Card Initialized");
   }
-  Serial.println("SD Card Initialized");
   Logger = SD.open("last_flight.txt", FILE_WRITE);
   
   Serial.end();
