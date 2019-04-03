@@ -9,9 +9,9 @@
 #define XA_ServoPin      9
 #define XB_ServoPin      10 //#TODO: Rewire from pin 11 to free up MOSI Pin 
 ////////////////////////
-#define P_GAIN           0.2     
-#define I_GAIN           0.02 
-#define D_GAIN           0.09 
+#define P_GAIN           0.8     
+#define I_GAIN           0.03 
+#define D_GAIN           0.2 
 unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
 #define TOTAL_FLIGHT_TIME 7000
 #define CONTROLLER_UPDATE_FREQUENCY 300 //Hz
@@ -31,24 +31,33 @@ class PIDController
     bool Clamped = false;
     int min_value;
     int max_value;
+    float Error = 0;
+    float IntegralTerm = 0;
+    float DerivativeTerm = 0;
+    
     bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b));}
     int CheckClamp(int a) {
       // Bound the input value between x_min and x_max. Also works in anti-windup
-      int angle = constrain(a, MIN_ANGLE, MAX_ANGLE); // Angle Limit
-      Clamped = not (angle == a);
-      return angle;
+      int value = constrain(a, min_value, max_value); // Angle Limit
+      Clamped = not (value == a);
+      return value;
     }
   public:
-    int DEADZONE = 15;
-    float IntegralTerm = 0;
-    float DerivativeTerm = 0;
-    float Error = 0;
+    int DEADZONE = 10;
+    
     int Output = 0;
     float lastError = 0;
     float lastOutput = 0;
     int TargetValue;
+    float (*ErrorFunction)(int, int);
     PIDController(int targ, int mini, int maxi) {
       TargetValue = targ;
+      min_value = mini;
+      max_value = maxi;
+      }
+    PIDController(int targ, int mini, int maxi, float (*ptr)(int, int)) {
+      TargetValue = targ;
+      ErrorFunction = ptr;
       min_value = mini;
       max_value = maxi;
       }
@@ -57,7 +66,7 @@ class PIDController
       }
     void Update(int MeasuredValue){
       // compute the error between the measurement and the desired value
-      Error = -ShortestAngularPath(MeasuredValue, TargetValue);
+      Error = (*ErrorFunction)(MeasuredValue, TargetValue);
       if (abs(Error) <= DEADZONE) { // Deadzone // Stop if close enough to prevent oscillations
         lastOutput = TargetValue;
       } else {
@@ -161,8 +170,8 @@ void setup() {
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
-  X = new PIDController(90,0,180);
-  Y = new PIDController(90,0,180);
+  X = new PIDController(90,0,180,&ShortestAngularPath);
+  Y = new PIDController(90,0,180,&ShortestAngularPath);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -280,7 +289,7 @@ float ShortestAngularPath(int angle, int goal) {
       dist = dist * -1;
     }
   }
-  return dist;
+  return -dist;
   }
 
 /*//////////IN DEVELOPMENT/////////////
