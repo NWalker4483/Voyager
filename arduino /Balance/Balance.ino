@@ -11,7 +11,7 @@
 ////////////////////////
 #define P_GAIN           0.3     
 #define I_GAIN           0.07 
-#define D_GAIN           0.2 
+#define D_GAIN           0.07 
 unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
 #define TOTAL_FLIGHT_TIME 7000
 #define CONTROLLER_UPDATE_FREQUENCY 300 //Hz
@@ -102,7 +102,6 @@ float AngleEstimates[3]; //
 //Variables below don't need to be global but we expose them for debug purposes
 float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
 float Gyro[3];          // Gyro Readings in deg/sec
-int CheckClamp(int, char); 
 
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
@@ -170,8 +169,8 @@ void setup() {
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
-  X = new PIDController(90,0,180,&ShortestAngularPath);
-  Y = new PIDController(90,0,180,&ShortestAngularPath);
+  X = new PIDController(90,MIN_ANGLE,MAX_ANGLE,&ShortestAngularPath);
+  Y = new PIDController(90,MIN_ANGLE,MAX_ANGLE,&ShortestAngularPath);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
