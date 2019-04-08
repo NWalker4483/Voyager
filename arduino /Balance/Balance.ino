@@ -1,32 +1,28 @@
-#include <Servo.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <SD.h>
+#include <Servo.h>          
+#include "SdFat.h"
 #include <Adafruit_LSM9DS1.h>
 /////////////////////////
 #define YB_ServoPin      6
 #define YA_ServoPin      5
 #define XA_ServoPin      9
-#define XB_ServoPin      10 //#TODO: Rewire from pin 11 to free up MOSI Pin 
+#define XB_ServoPin      10
 ////////////////////////
 #define P_GAIN           0.3     
 #define I_GAIN           0.07 
 #define D_GAIN           0.07 
-unsigned long TrackedTimes[4] = {0,0,0,0}; // time at the end of the last loop
+unsigned long TrackedTimes[5] = {0,0,0,0,0}; // time at the end of the last loop
 #define TOTAL_FLIGHT_TIME 7000
 #define CONTROLLER_UPDATE_FREQUENCY 300 //Hz
 #define ESTIMATE_UPDATE_FREQUENCY 200 //Hz
-#define LOGGING_FREQUENCY 300 //HzDegrees
+#define LOGGING_FREQUENCY 200 //Hz
 ///////////////////////////////
 #define GYROSCOPE_SENSITIVITY 65.536    // Definitely forgot what this number means 
 /////////////////////////
-#define MAX_OFFSET      90
-int MAX_ANGLE =         90 + MAX_OFFSET; // degrees
-int MIN_ANGLE =         90 - MAX_OFFSET; // degrees
+#define MAX_OFFSET      45
+#define MAX_ANGLE         90 + MAX_OFFSET // degrees
+#define MIN_ANGLE        90 - MAX_OFFSET // degrees
 //Globals
-
-class PIDController
-{
+class PIDController {
   private:
     bool Clamped = false;
     int min_value;
@@ -60,7 +56,7 @@ class PIDController
       min_value = mini;
       max_value = maxi;
       }
-    void set_Target(int value ) { // 0 :-: 180
+    void set_Target(int value ) {
       TargetValue = constrain(value, min_value, max_value); // Speed Limit
       }
     void Update(int MeasuredValue){
@@ -78,7 +74,7 @@ class PIDController
           IntegralTerm += Error;
         }
         // compute the control effort by multiplying the error by Kp
-        Output = 90 + (Error * P_GAIN) + (IntegralTerm * I_GAIN) + (DerivativeTerm * D_GAIN);
+        Output = (Error * P_GAIN) + (IntegralTerm * I_GAIN) + (DerivativeTerm * D_GAIN);
         lastError = Error;
 
         // make sure the output value is bounded to 0 to 100 using the bound function defined below
@@ -87,20 +83,32 @@ class PIDController
     }
   };
 
+  struct datastore {
+    uint16_t x_act;
+    uint16_t y_act;
+    uint16_t x_res;
+    uint16_t y_res;
+    long double curr_time;
+};
+
 Servo XA_Servo;
 Servo XB_Servo;
 Servo YA_Servo;
 Servo YB_Servo;
 // Initialize the IMU Sensor
 Adafruit_LSM9DS1 lsm = Adafruit_LSM9DS1();
+/////////////
+SdFat SD;
 File Logger;
 bool Launched = false;
 
-float AngleEstimates[3]; //
-
-//Variables below don't need to be global but we expose them for debug purposes
-float Accel[3];         //projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
+// Variables below don't need to be global but we expose them for debug purposes
+float Accel[3];         // projection of normalized gravitation force vector on x/y/z axis, as measured by accelerometer
 float Gyro[3];          // Gyro Readings in deg/sec
+short AngleEstimates[3];//
+
+PIDController *X;
+PIDController *Y;
 
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
@@ -137,14 +145,12 @@ void getMachineState() {
   Gyro[1] = g.gyro.x / 1000;
   Gyro[2] = g.gyro.z / 1000;
   }
-PIDController *X;
-PIDController *Y;
 void setup() {
   XA_Servo.attach(XA_ServoPin);
   XB_Servo.attach(XB_ServoPin);
   YA_Servo.attach(YA_ServoPin);
   YB_Servo.attach(YB_ServoPin);
-  Serial.begin(115200);
+  Serial.begin(9600);
   Serial.println("LSM9DS1 Stabilized Rocket Demo");
 
   // Try to initialise and warn if we couldn't detect the chip
@@ -156,18 +162,20 @@ void setup() {
   Serial.println("Found LSM9DS1 9DOF");
   }
   if (!SD.begin(4)) {
+    FailureDance();
     Serial.println("SD Card initialization failed!");
-    //while (1);
+     while (1);
   } else {
     Serial.println("SD Card Initialized");
   }
-  Logger = SD.open("last_flight.txt", FILE_WRITE);
+  Logger = SD.open("last_flight.dat", FILE_WRITE);
   
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
-  X = new PIDController(90,MIN_ANGLE,MAX_ANGLE,&ShortestAngularPath);
-  Y = new PIDController(90,MIN_ANGLE,MAX_ANGLE,&ShortestAngularPath);
+  // TODO: Make Clearer
+  X = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
+  Y = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -176,6 +184,7 @@ void setup() {
   }
 
 void loop() {
+  Serial.println(1);
   if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { // Enter Timed Loop 
     getMachineState();
     ApplyComplementaryFiltering(millis() - TrackedTimes[2]);
@@ -183,24 +192,29 @@ void loop() {
   }
   if (Launched){
     if(millis() - TrackedTimes[1] >= (1000 / CONTROLLER_UPDATE_FREQUENCY)) { // Enter Timed Loop 
-      
+
       X->Update(AngleEstimates[0]);
       Y->Update(AngleEstimates[1]);
-      set_X_Angle(X->Output);
-      set_Y_Angle(Y->Output);
+      set_X_Angle(90+X->Output);
+      set_Y_Angle(90+Y->Output);
       TrackedTimes[1] = millis();
     }
     if(millis() - TrackedTimes[3] >= (1000 / LOGGING_FREQUENCY)) { // Enter Timed Loop 
       LogStateEstimates();
       TrackedTimes[3] = millis();
     }
-    //LandingDetected();
+    if(millis() - TrackedTimes[4] >= 3000) { // Enter Timed Loop 
+      // Sync log file
+      Logger.close();
+      Logger = SD.open("last_flight.dat", FILE_WRITE);
+      TrackedTimes[4] = millis();
+    }
+    LandingDetected();
   } else {
     TrackedTimes[0] = millis(); // Time since launch
     Launched = LaunchDetected();
   }
   }
-
 ///////// SETTERS ////////////////////
 void set_X_Angle(int angle) {
   int inv_angle;
@@ -232,7 +246,7 @@ void setupSensor() {
   // 3.) Setup the gyroscope
   lsm.setupGyro(lsm.LSM9DS1_GYROSCALE_245DPS);
   }
-////////  USER POINTED FUNCTIONS ////////
+//////// USER POINTED FUNCTIONS ////////
 void SuccessDance() {
   set_X_Angle(180);
   set_Y_Angle(180);
@@ -259,7 +273,13 @@ void FailureDance() {
   }
 
 void LogStateEstimates(){
-  Logger.println("testing 1, 2, 3.");
+    struct datastore myData;
+    myData.x_act = AngleEstimates[0];
+    myData.y_act = AngleEstimates[1];
+    myData.x_res = 90+X->Output;
+    myData.y_res = 90+Y->Output;
+    myData.curr_time = millis();
+    Logger.write((const uint8_t *)&myData, sizeof(myData));
   }
 ////////// IN-FLIGHT HELPER FUNCTIONS ////
 bool LaunchDetected(){
@@ -267,7 +287,19 @@ bool LaunchDetected(){
   return false;
   }
 bool LandingDetected(){
-  if (millis() > 30000){return true;}
+  if (millis() > 30000){
+    Logger.close();
+  /*
+  File Storage;
+    
+    //Transcribe flight logs 
+    Logger = SD.open("datalog.dat", FILE_READ);
+
+     if (Logger.available()) {
+        struct datastore myData;
+        dataFile.read((uint8_t *)&myData, sizeof(myData));
+        */
+    return true;}
   return false;
   }
 ///////// HELPER FUNCTION ///////
@@ -284,15 +316,3 @@ float ShortestAngularPath(int angle, int goal) {
   }
   return -dist;
   }
-
-/*//////////IN DEVELOPMENT/////////////
-void PlotXY(){
-  Serial.print(0);
-  Serial.print(" ");
-  Serial.print(180);
-  Serial.print(" ");
-  Serial.print(AngleEstimates[0]);
-  Serial.print(" ");
-  Serial.println(AngleEstimates[1]);
-  }
- */
