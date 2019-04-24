@@ -94,10 +94,7 @@ class PIDController {
         Output = TargetValue;
       } else {
         // compute the control effort by multiplying the error by Kp
-        Output = Error + Output;
-
-        // make sure the output value is bounded to 0 to 100 using the bound function defined below
-       // Output = CheckClamp(Output);
+        Output = constrain(Error + Output, min_value, max_value);
       }
     }
   };

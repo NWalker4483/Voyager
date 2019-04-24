@@ -47,8 +47,8 @@ float Accel[3];         // projection of normalized gravitation force vector on 
 float Gyro[3];          // Gyro Readings in deg/sec
 short AngleEstimates[3];//
 
-LinearController *X;
-LinearController *Y;
+PIDController *X;
+PIDController *Y;
 
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
@@ -109,13 +109,12 @@ void setup() {
     Serial.println(F("SD Card Initialized"));
   }
   Logger = SD.open(F("last_flight.dat"), FILE_WRITE);
-  
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
   // TODO: Make Clearer
-  X = new LinearController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
-  Y = new LinearController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
+  X = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
+  Y = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -124,21 +123,24 @@ void setup() {
   }
 
 void loop() {
-  if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { // Enter Timed Loop 
+  if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { 
     getMachineState();
     ApplyComplementaryFiltering(millis() - TrackedTimes[2]);
     TrackedTimes[2] = millis();
   }
   if (Launched){
-    if(millis() - TrackedTimes[1] >= (1000 / CONTROLLER_UPDATE_FREQUENCY)) { // Enter Timed Loop 
+    // Update Controller 
+    if(millis() - TrackedTimes[1] >= (1000 / CONTROLLER_UPDATE_FREQUENCY)) { 
       set_Y_Angle(90+Y->Output);
+      set_X_Angle(90+X->Output);
       TrackedTimes[1] = millis();
     }
-    if(millis() - TrackedTimes[3] >= (1000 / LOGGING_FREQUENCY)) { // Enter Timed Loop 
+    // Log current state to file
+    if(millis() - TrackedTimes[3] >= (1000 / LOGGING_FREQUENCY)) { 
       LogStateEstimates();
       TrackedTimes[3] = millis();
     }
-    if(millis() - TrackedTimes[4] >= 3000) { // Enter Timed Loop 
+    if(millis() - TrackedTimes[4] >= 3000) { // Sync Log File 
       // Sync log file
       Logger.close();
       Logger = SD.open(F("last_flight.dat"), FILE_WRITE);
@@ -214,6 +216,16 @@ void LogStateEstimates(){
     myData.y_res = 90+Y->Output;
     myData.curr_time = millis();
     Logger.write((const uint8_t *)&myData, sizeof(myData));
+  }
+void LogStateEstimates_CSV(){
+    Logger.print(millis()));
+    Logger.print(AngleEstimates[0]);
+    Logger.print(',');
+    Logger.print(AngleEstimates[1]);
+    Logger.print(',');
+    Logger.print(90+X->Output);
+    Logger.print(',');
+    Logger.println(90+Y->Output);
   }
 ////////// IN-FLIGHT HELPER FUNCTIONS ////
 bool LaunchDetected(){
