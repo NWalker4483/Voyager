@@ -108,7 +108,7 @@ void setup() {
   } else {
     Serial.println(F("SD Card Initialized"));
   }
-  Logger = SD.open(F("last_flight.dat"), FILE_WRITE);
+  Logger = SD.open(F("last_flight.txt"), FILE_WRITE);
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
