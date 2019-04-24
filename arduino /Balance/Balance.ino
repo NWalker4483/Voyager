@@ -1,5 +1,6 @@
 #include <Servo.h>          
 #include "SdFat.h"
+#include "Controllers.cpp"
 #include <Adafruit_LSM9DS1.h>
 /////////////////////////
 #define YB_ServoPin      6
@@ -9,7 +10,7 @@
 ////////////////////////
 #define P_GAIN           0.3     
 #define I_GAIN           0.07 
-#define D_GAIN           0.07 
+#define D_GAIN           0.2 
 unsigned long TrackedTimes[5] = {0,0,0,0,0}; // time at the end of the last loop
 #define TOTAL_FLIGHT_TIME 7000
 #define CONTROLLER_UPDATE_FREQUENCY 300 //Hz
@@ -22,67 +23,6 @@ unsigned long TrackedTimes[5] = {0,0,0,0,0}; // time at the end of the last loop
 #define MAX_ANGLE         90 + MAX_OFFSET // degrees
 #define MIN_ANGLE        90 - MAX_OFFSET // degrees
 //Globals
-class PIDController {
-  private:
-    bool Clamped = false;
-    int min_value;
-    int max_value;
-    float Error = 0;
-    float IntegralTerm = 0;
-    float DerivativeTerm = 0;
-    
-    bool sameSign(float a, float b){return (a / abs(a)) == (b / abs(b));}
-    int CheckClamp(int a) {
-      // Bound the input value between x_min and x_max. Also works in anti-windup
-      int value = constrain(a, min_value, max_value); // Angle Limit
-      Clamped = not (value == a);
-      return value;
-    }
-  public:
-    int DEADZONE = 0;
-    
-    int Output = 0;
-    float lastError = 0;
-    int TargetValue;
-    float (*ErrorFunction)(int, int);
-    PIDController(int targ, int mini, int maxi) {
-      TargetValue = targ;
-      min_value = mini;
-      max_value = maxi;
-      }
-    PIDController(int targ, int mini, int maxi, float (*ptr)(int, int)) {
-      TargetValue = targ;
-      ErrorFunction = ptr;
-      min_value = mini;
-      max_value = maxi;
-      }
-    void set_Target(int value ) {
-      TargetValue = constrain(value, min_value, max_value); // Speed Limit
-      }
-    void Update(int MeasuredValue){
-      // compute the error between the measurement and the desired value
-      Error = (*ErrorFunction)(MeasuredValue, TargetValue);
-      if (abs(Error) <= DEADZONE) { // Deadzone // Stop if close enough to prevent oscillations
-        Output = TargetValue;
-      } else {
-        DerivativeTerm = Error - lastError;
-        // If the actuator is saturating ignore the integral term
-        // if the system is clamped and the sign of the integrator term and the sign of the PID output are the same
-        if (Clamped and sameSign(Output, IntegralTerm)) {
-          IntegralTerm += 0;
-        } else {
-          IntegralTerm += Error;
-        }
-        // compute the control effort by multiplying the error by Kp
-        Output = (Error * P_GAIN) + (IntegralTerm * I_GAIN) + (DerivativeTerm * D_GAIN);
-        lastError = Error;
-
-        // make sure the output value is bounded to 0 to 100 using the bound function defined below
-        Output = CheckClamp(Output);
-      }
-    }
-  };
-
   struct datastore {
     uint16_t x_act;
     uint16_t y_act;
@@ -107,8 +47,8 @@ float Accel[3];         // projection of normalized gravitation force vector on 
 float Gyro[3];          // Gyro Readings in deg/sec
 short AngleEstimates[3];//
 
-PIDController *X;
-PIDController *Y;
+LinearController *X;
+LinearController *Y;
 
 void ApplyComplementaryFiltering(unsigned long delta_time) {
     float pitchAcc, rollAcc;               
@@ -151,31 +91,31 @@ void setup() {
   YA_Servo.attach(YA_ServoPin);
   YB_Servo.attach(YB_ServoPin);
   Serial.begin(9600);
-  Serial.println("LSM9DS1 Stabilized Rocket Demo");
+  Serial.println(F("LSM9DS1 Stabilized Rocket Demo"));
 
   // Try to initialise and warn if we couldn't detect the chip
   if (!lsm.begin()) {
     FailureDance();
-    Serial.println("Oops ... unable to initialize the LSM9DS1. Check your wiring!");
+    Serial.println(F("Oops ... unable to initialize the LSM9DS1. Check your wiring!"));
     while (1);
   } else {
-  Serial.println("Found LSM9DS1 9DOF");
+  Serial.println(F("Found LSM9DS1 9DOF"));
   }
   if (!SD.begin(4)) {
     FailureDance();
-    Serial.println("SD Card initialization failed!");
+    Serial.println(F("SD Card initialization failed!"));
      while (1);
   } else {
-    Serial.println("SD Card Initialized");
+    Serial.println(F("SD Card Initialized"));
   }
-  Logger = SD.open("last_flight.dat", FILE_WRITE);
+  Logger = SD.open(F("last_flight.dat"), FILE_WRITE);
   
   Serial.end();
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
   // TODO: Make Clearer
-  X = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
-  Y = new PIDController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
+  X = new LinearController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
+  Y = new LinearController(90,-MAX_OFFSET,MAX_OFFSET,&ShortestAngularPath);
   SuccessDance();
   // helper to just set the default scaling we want
   setupSensor();
@@ -184,7 +124,6 @@ void setup() {
   }
 
 void loop() {
-  Serial.println(1);
   if(millis() - TrackedTimes[2] >= (1000 / ESTIMATE_UPDATE_FREQUENCY)) { // Enter Timed Loop 
     getMachineState();
     ApplyComplementaryFiltering(millis() - TrackedTimes[2]);
@@ -192,10 +131,6 @@ void loop() {
   }
   if (Launched){
     if(millis() - TrackedTimes[1] >= (1000 / CONTROLLER_UPDATE_FREQUENCY)) { // Enter Timed Loop 
-
-      X->Update(AngleEstimates[0]);
-      Y->Update(AngleEstimates[1]);
-      set_X_Angle(90+X->Output);
       set_Y_Angle(90+Y->Output);
       TrackedTimes[1] = millis();
     }
@@ -206,15 +141,14 @@ void loop() {
     if(millis() - TrackedTimes[4] >= 3000) { // Enter Timed Loop 
       // Sync log file
       Logger.close();
-      Logger = SD.open("last_flight.dat", FILE_WRITE);
+      Logger = SD.open(F("last_flight.dat"), FILE_WRITE);
       TrackedTimes[4] = millis();
     }
     LandingDetected();
   } else {
     TrackedTimes[0] = millis(); // Time since launch
     Launched = LaunchDetected();
-  }
-  }
+  }}
 ///////// SETTERS ////////////////////
 void set_X_Angle(int angle) {
   int inv_angle;
